@@ -14,6 +14,7 @@ readonly class ChargeRequest
      * @param string $email Customer email address
      * @param string $reference Unique transaction reference
      * @param string|null $callbackUrl Optional URL to redirect to after payment completion
+     * @param string|null $cancelUrl Optional URL to redirect to if payment is cancelled
      * @param array $options Optional driver-specific configuration overrides
      */
     public function __construct(
@@ -22,6 +23,7 @@ readonly class ChargeRequest
         public string $email,
         public string $reference,
         public ?string $callbackUrl = null,
+        public ?string $cancelUrl = null,
         public array $options = []
     ) {
         Validator::make([

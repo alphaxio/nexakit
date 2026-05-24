@@ -1,8 +1,9 @@
 <?php
 
-namespace Alphaxio\Nexakit\Pay;
+namespace Alphaxio\Nexakit\Pay\Builders;
 
 use Illuminate\Support\Str;
+use Alphaxio\Nexakit\Pay\PayManager;
 use Alphaxio\Nexakit\Pay\DTOs\ChargeRequest;
 use Alphaxio\Nexakit\Pay\DTOs\PaymentResponse;
 
@@ -13,13 +14,14 @@ class ChargeBuilder
     protected ?string $email = null;
     protected ?string $reference = null;
     protected ?string $callbackUrl = null;
+    protected ?string $cancelUrl = null;
     protected ?string $driver = null;
     protected array $options = [];
 
     /**
      * Create a new ChargeBuilder instance.
      */
-    public function __construct(protected PaymentManager $manager) {}
+    public function __construct(protected PayManager $manager) {}
 
     /**
      * Set the transaction amount in major units (e.g. Naira, Dollars).
@@ -85,6 +87,15 @@ class ChargeBuilder
     }
 
     /**
+     * Set the return/cancel URL.
+     */
+    public function cancelUrl(string $url): self
+    {
+        $this->cancelUrl = $url;
+        return $this;
+    }
+
+    /**
      * Explicitly choose the payment driver for this charge.
      */
     public function via(string $driver): self
@@ -117,6 +128,7 @@ class ChargeBuilder
             email: $this->email ?? '',
             reference: $this->reference ?? 'nk_' . Str::random(16),
             callbackUrl: $this->callbackUrl,
+            cancelUrl: $this->cancelUrl,
             options: $this->options
         );
     }

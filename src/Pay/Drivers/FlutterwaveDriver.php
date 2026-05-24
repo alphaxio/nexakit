@@ -6,10 +6,13 @@ use Illuminate\Support\Facades\Http;
 use Alphaxio\Nexakit\Pay\Contracts\PaymentGateway;
 use Alphaxio\Nexakit\Pay\DTOs\ChargeRequest;
 use Alphaxio\Nexakit\Pay\DTOs\PaymentResponse;
+use Alphaxio\Nexakit\Pay\Concerns\HandlesMinorUnits;
 use RuntimeException;
 
 class FlutterwaveDriver implements PaymentGateway
 {
+    use HandlesMinorUnits;
+
     protected string $baseUrl = 'https://api.flutterwave.com/v3';
 
     /**
@@ -39,7 +42,16 @@ class FlutterwaveDriver implements PaymentGateway
 
         // Merge any custom Flutterwave options (e.g., customizations, payment_options)
         $flutterwaveOptions = $request->options['flutterwave'] ?? [];
-        $payload = array_merge_recursive($payload, $flutterwaveOptions);
+        
+        if (isset($flutterwaveOptions['customer'])) {
+            $payload['customer'] = array_merge(
+                $payload['customer'],
+                $flutterwaveOptions['customer']
+            );
+            unset($flutterwaveOptions['customer']);
+        }
+        
+        $payload = array_merge($payload, $flutterwaveOptions);
 
         $response = Http::withHeaders($this->getHeaders())
             ->post("{$this->baseUrl}/payments", $payload);
@@ -80,9 +92,9 @@ class FlutterwaveDriver implements PaymentGateway
 
         return new PaymentResponse(
             status: $this->normalizeStatus($data['status'] ?? 'failed'),
-            reference: $data['tx_ref'],
-            amount: (float) $data['amount'],
-            currency: $data['currency'],
+            reference: $data['tx_ref'] ?? $reference,
+            amount: (float) ($data['amount'] ?? 0),
+            currency: $data['currency'] ?? 'NGN',
             gateway: 'flutterwave',
             meta: $response->json(),
             metadata: $metadata
@@ -94,10 +106,17 @@ class FlutterwaveDriver implements PaymentGateway
      */
     public function refund(string $reference, float|int $amount, ?string $reason = null): PaymentResponse
     {
-        // 1. Get the Flutterwave transaction ID by verifying the reference first
-        $verifyResponse = $this->verify($reference);
-        $transactionId = $verifyResponse->meta['data']['id'] ?? null;
+        // 1. Get the Flutterwave transaction ID by calling the API directly
+        $verifyResponse = Http::withHeaders($this->getHeaders())
+            ->get("{$this->baseUrl}/transactions/verify_by_reference", [
+                'tx_ref' => $reference,
+            ]);
 
+        if ($verifyResponse->failed() || $verifyResponse->json('status') !== 'success') {
+            throw new RuntimeException('Flutterwave refund lookup failed: Cannot verify transaction details.');
+        }
+
+        $transactionId = $verifyResponse->json('data.id') ?? null;
         if (!$transactionId) {
             throw new RuntimeException('Flutterwave refund failed: Could not resolve transaction ID for reference.');
         }
@@ -120,9 +139,10 @@ class FlutterwaveDriver implements PaymentGateway
 
         $rawMetadata = $response->json('data.meta') ?? [];
         $metadata = is_string($rawMetadata) ? (json_decode($rawMetadata, true) ?? []) : $rawMetadata;
+        $refundStatus = $response->json('data.status') ?? 'pending';
 
         return new PaymentResponse(
-            status: 'success',
+            status: $this->normalizeStatus($refundStatus),
             reference: $reference,
             amount: $amount,
             currency: $response->json('data.currency') ?? 'NGN',
@@ -150,9 +170,10 @@ class FlutterwaveDriver implements PaymentGateway
     protected function normalizeStatus(string $status): string
     {
         return match ($status) {
-            'successful' => 'success',
-            'pending' => 'pending',
-            default => 'failed',
+            'successful', 'completed', 'refunded'       => 'success',
+            'pending', 'processing'                     => 'pending',
+            'failed', 'cancelled', 'reversed', 'error'  => 'failed',
+            default                                     => 'failed',
         };
     }
 }

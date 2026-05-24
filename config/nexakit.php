@@ -11,7 +11,7 @@ return [
     | application. The payment manager handles transactions, checkouts,
     | and verification.
     |
-    | Supported drivers: "paystack", "flutterwave", "monnify", "opay", "sandbox"
+    | Supported drivers: "paystack", "flutterwave", "stripe", "monnify", "opay", "sandbox"
     |
     */
 
@@ -20,13 +20,19 @@ return [
 
         'drivers' => [
             'sandbox' => [
-                // No credentials needed for sandbox simulation
+                // No credentials required — simulates payment flow locally
             ],
 
             'paystack' => [
                 'public_key' => env('PAYSTACK_PUBLIC_KEY'),
                 'secret_key' => env('PAYSTACK_SECRET_KEY'),
                 'webhook_secret' => env('PAYSTACK_WEBHOOK_SECRET'),
+            ],
+
+            'stripe' => [
+                'public_key' => env('STRIPE_PUBLIC_KEY'),
+                'secret_key' => env('STRIPE_SECRET_KEY'),
+                'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
             ],
 
             'flutterwave' => [
@@ -48,6 +54,7 @@ return [
                 'public_key' => env('OPAY_PUBLIC_KEY'),
                 'merchant_id' => env('OPAY_MERCHANT_ID'),
                 'secret_key' => env('OPAY_SECRET_KEY'),
+                'webhook_secret' => env('OPAY_WEBHOOK_SECRET'),
             ],
         ],
     ],

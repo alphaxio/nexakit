@@ -3,7 +3,7 @@
 namespace Alphaxio\Nexakit;
 
 use Illuminate\Support\ServiceProvider;
-use Alphaxio\Nexakit\Pay\PaymentManager;
+use Alphaxio\Nexakit\Pay\PayManager;
 // use Alphaxio\Nexakit\Sms\SmsManager;
 // use Alphaxio\Nexakit\Kyc\KycManager;
 
@@ -21,9 +21,9 @@ class NexakitServiceProvider extends ServiceProvider
 
         // Register Payment Manager singleton
         $this->app->singleton('nexakit.pay', function ($app) {
-            return new PaymentManager($app);
+            return new PayManager($app);
         });
-        $this->app->alias('nexakit.pay', PaymentManager::class);
+        $this->app->alias('nexakit.pay', PayManager::class);
 
         // Register SMS Manager singleton (Disabled until implemented)
         // $this->app->singleton('nexakit.sms', function ($app) {

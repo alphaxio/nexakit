@@ -5,10 +5,10 @@ namespace Alphaxio\Nexakit\Facades;
 use Illuminate\Support\Facades\Facade;
 
 /**
- * @method static \Alphaxio\Nexakit\Pay\ChargeBuilder charge()
+ * @method static \Alphaxio\Nexakit\Pay\Builders\ChargeBuilder charge()
  * @method static \Alphaxio\Nexakit\Pay\Contracts\PaymentGateway driver(string|null $driver = null)
  *
- * @see \Alphaxio\Nexakit\Pay\PaymentManager
+ * @see \Alphaxio\Nexakit\Pay\PayManager
  */
 class Pay extends Facade
 {

@@ -4,7 +4,7 @@ namespace Alphaxio\Nexakit\Tests\Feature;
 
 use Alphaxio\Nexakit\Tests\TestCase;
 use Alphaxio\Nexakit\Facades\Pay;
-use Alphaxio\Nexakit\Pay\ChargeBuilder;
+use Alphaxio\Nexakit\Pay\Builders\ChargeBuilder;
 use Alphaxio\Nexakit\Pay\DTOs\PaymentResponse;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -64,7 +64,7 @@ class PaymentTest extends TestCase
     /** @test */
     public function it_can_initialize_paystack_payment()
     {
-        $reference = 'tx_' . Str::random(12);
+        $reference = $this->generateReference();
 
         Http::fake([
             'https://api.paystack.co/transaction/initialize' => Http::response([
@@ -100,7 +100,7 @@ class PaymentTest extends TestCase
     /** @test */
     public function it_can_verify_paystack_payment()
     {
-        $reference = 'tx_' . Str::random(12);
+        $reference = $this->generateReference();
 
         Http::fake([
             "https://api.paystack.co/transaction/verify/{$reference}" => Http::response([
@@ -125,7 +125,7 @@ class PaymentTest extends TestCase
     /** @test */
     public function it_can_initialize_flutterwave_payment()
     {
-        $reference = 'tx_' . Str::random(12);
+        $reference = $this->generateReference();
 
         Http::fake([
             'https://api.flutterwave.com/v3/payments' => Http::response([
@@ -159,7 +159,7 @@ class PaymentTest extends TestCase
     /** @test */
     public function it_can_verify_flutterwave_payment()
     {
-        $reference = 'tx_' . Str::random(12);
+        $reference = $this->generateReference();
 
         Http::fake([
             "https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref={$reference}" => Http::response([
@@ -183,7 +183,7 @@ class PaymentTest extends TestCase
     /** @test */
     public function it_can_refund_flutterwave_payment_via_two_step_lookup()
     {
-        $reference = 'tx_' . Str::random(12);
+        $reference = $this->generateReference();
 
         Http::fake([
             // Step 1: Verify call to look up FLW Transaction ID from reference
@@ -213,5 +213,233 @@ class PaymentTest extends TestCase
 
         $this->assertTrue($response->isSuccessful());
         $this->assertEquals(5000, $response->amount);
+    }
+
+    /** @test */
+    public function it_can_initialize_stripe_payment()
+    {
+        $reference = $this->generateReference();
+
+        Http::fake([
+            'https://api.stripe.com/v1/checkout/sessions' => Http::response([
+                'id' => 'cs_test_session_id',
+                'url' => 'https://checkout.stripe.com/pay/cs_test_session_id',
+                'payment_status' => 'unpaid',
+                'status' => 'open',
+                'client_reference_id' => $reference,
+                'amount_total' => 500000,
+                'currency' => 'usd'
+            ], 200)
+        ]);
+
+        $response = Pay::charge()
+            ->via('stripe')
+            ->amount(5000)
+            ->currency('USD')
+            ->email('alphaxio47@gmail.com')
+            ->reference($reference)
+            ->initialize();
+
+        $this->assertTrue($response->isPending());
+        $this->assertEquals('https://checkout.stripe.com/pay/cs_test_session_id', $response->redirectUrl);
+        $this->assertEquals('stripe', $response->gateway);
+
+        Http::assertSent(function ($request) use ($reference) {
+            return $request->url() === 'https://api.stripe.com/v1/checkout/sessions'
+                && (int) $request['line_items[0][price_data][unit_amount]'] === 500000
+                && $request['customer_email'] === 'alphaxio47@gmail.com'
+                && $request['client_reference_id'] === $reference;
+        });
+    }
+
+    /** @test */
+    public function it_can_verify_stripe_payment_by_session_id()
+    {
+        $sessionId = 'cs_test_session_id';
+
+        Http::fake([
+            "https://api.stripe.com/v1/checkout/sessions/{$sessionId}" => Http::response([
+                'id' => $sessionId,
+                'payment_status' => 'paid',
+                'status' => 'complete',
+                'client_reference_id' => 'tx_1234567890',
+                'amount_total' => 500000,
+                'currency' => 'usd',
+                'metadata' => [
+                    'invoice_no' => 'INV-001'
+                ]
+            ], 200)
+        ]);
+
+        $response = Pay::driver('stripe')->verify($sessionId);
+
+        $this->assertTrue($response->isSuccessful());
+        $this->assertEquals('tx_1234567890', $response->reference);
+        $this->assertEquals(5000, $response->amount);
+        $this->assertEquals('USD', $response->currency);
+        $this->assertEquals(['invoice_no' => 'INV-001'], $response->metadata);
+    }
+
+    /** @test */
+    public function it_can_refund_stripe_payment()
+    {
+        $sessionId = 'cs_test_session_id';
+
+        Http::fake([
+            "https://api.stripe.com/v1/checkout/sessions/{$sessionId}" => Http::response([
+                'id' => $sessionId,
+                'payment_intent' => 'pi_test_intent_id',
+                'payment_status' => 'paid',
+                'status' => 'complete',
+                'client_reference_id' => 'tx_1234567890',
+                'amount_total' => 500000,
+                'currency' => 'usd'
+            ], 200),
+            'https://api.stripe.com/v1/refunds' => Http::response([
+                'id' => 're_test_refund_id',
+                'amount' => 500000,
+                'currency' => 'usd',
+                'status' => 'succeeded'
+            ], 200)
+        ]);
+
+        $response = Pay::driver('stripe')->refund($sessionId, 5000, 'Customer request');
+
+        $this->assertTrue($response->isSuccessful());
+        $this->assertEquals(5000, $response->amount);
+
+        Http::assertSent(function ($request) {
+            return $request->url() === 'https://api.stripe.com/v1/refunds'
+                && $request['payment_intent'] === 'pi_test_intent_id'
+                && (int) $request['amount'] === 500000;
+        });
+    }
+
+    /** @test */
+    public function it_maps_pending_stripe_refund_status_correctly()
+    {
+        $sessionId = 'cs_test_session_id';
+
+        Http::fake([
+            "https://api.stripe.com/v1/checkout/sessions/{$sessionId}" => Http::response([
+                'id' => $sessionId,
+                'payment_intent' => 'pi_test_intent_id',
+                'payment_status' => 'paid',
+                'status' => 'complete',
+                'client_reference_id' => 'tx_1234567890',
+                'amount_total' => 500000,
+                'currency' => 'usd'
+            ], 200),
+            'https://api.stripe.com/v1/refunds' => Http::response([
+                'id' => 're_test_refund_id',
+                'amount' => 500000,
+                'currency' => 'usd',
+                'status' => 'pending'
+            ], 200)
+        ]);
+
+        $response = Pay::driver('stripe')->refund($sessionId, 5000, 'Customer request');
+
+        $this->assertTrue($response->isPending());
+    }
+
+    /** @test */
+    public function it_can_refund_paystack_payment()
+    {
+        $reference = $this->generateReference();
+
+        Http::fake([
+            // Step 1: Verify transaction to resolve currency and check status
+            "https://api.paystack.co/transaction/verify/{$reference}" => Http::response([
+                'status' => true,
+                'data' => [
+                    'status' => 'success',
+                    'reference' => $reference,
+                    'amount' => 500000,
+                    'currency' => 'USD'
+                ]
+            ], 200),
+            // Step 2: Refund transaction using verified details
+            'https://api.paystack.co/refund' => Http::response([
+                'status' => true,
+                'data' => [
+                    'status' => 'processed',
+                    'transaction' => [
+                        'reference' => $reference
+                    ],
+                    'amount' => 500000,
+                    'currency' => 'USD'
+                ]
+            ], 200)
+        ]);
+
+        $response = Pay::driver('paystack')->refund($reference, 5000, 'requested_by_customer');
+
+        $this->assertTrue($response->isSuccessful());
+        $this->assertEquals(5000, $response->amount);
+        $this->assertEquals('USD', $response->currency);
+
+        Http::assertSent(function ($request) {
+            return $request->url() === 'https://api.paystack.co/refund'
+                && (int) $request['amount'] === 500000;
+        });
+    }
+
+    /** @test */
+    public function it_throws_on_failed_paystack_initialization()
+    {
+        Http::fake([
+            'https://api.paystack.co/transaction/initialize' => Http::response([
+                'status' => false,
+                'message' => 'Invalid key'
+            ], 401)
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+
+        Pay::charge()
+            ->via('paystack')
+            ->amount(5000)
+            ->email('test@example.com')
+            ->initialize();
+    }
+
+    /** @test */
+    public function it_throws_on_failed_flutterwave_initialization()
+    {
+        Http::fake([
+            'https://api.flutterwave.com/v3/payments' => Http::response([
+                'status' => 'error',
+                'message' => 'Invalid key'
+            ], 401)
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+
+        Pay::charge()
+            ->via('flutterwave')
+            ->amount(5000)
+            ->email('test@example.com')
+            ->initialize();
+    }
+
+    /** @test */
+    public function it_throws_on_failed_stripe_initialization()
+    {
+        Http::fake([
+            'https://api.stripe.com/v1/checkout/sessions' => Http::response([
+                'error' => [
+                    'message' => 'Invalid API key'
+                ]
+            ], 401)
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+
+        Pay::charge()
+            ->via('stripe')
+            ->amount(5000)
+            ->email('test@example.com')
+            ->initialize();
     }
 }

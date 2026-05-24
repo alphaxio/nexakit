@@ -6,10 +6,13 @@ use Illuminate\Support\Facades\Http;
 use Alphaxio\Nexakit\Pay\Contracts\PaymentGateway;
 use Alphaxio\Nexakit\Pay\DTOs\ChargeRequest;
 use Alphaxio\Nexakit\Pay\DTOs\PaymentResponse;
+use Alphaxio\Nexakit\Pay\Concerns\HandlesMinorUnits;
 use RuntimeException;
 
 class PaystackDriver implements PaymentGateway
 {
+    use HandlesMinorUnits;
+
     protected string $baseUrl = 'https://api.paystack.co';
 
     /**
@@ -27,7 +30,6 @@ class PaystackDriver implements PaymentGateway
      */
     public function initiate(ChargeRequest $request): PaymentResponse
     {
-        // Build base Paystack payload with minor units
         $minorAmount = $this->convertToMinorUnits($request->amount, $request->currency);
 
         $payload = [
@@ -88,7 +90,7 @@ class PaystackDriver implements PaymentGateway
 
         return new PaymentResponse(
             status: $this->normalizeStatus($data['status'] ?? 'failed'),
-            reference: $data['reference'],
+            reference: $data['reference'] ?? $reference,
             amount: $majorAmount,
             currency: $currency,
             gateway: 'paystack',
@@ -102,7 +104,15 @@ class PaystackDriver implements PaymentGateway
      */
     public function refund(string $reference, float|int $amount, ?string $reason = null): PaymentResponse
     {
-        $currency = config('nexakit.pay.currency', 'NGN');
+        // Fetch the real transaction currency first
+        $verifyResponse = Http::withHeaders($this->getHeaders())
+            ->get("{$this->baseUrl}/transaction/verify/" . rawurlencode($reference));
+
+        if ($verifyResponse->failed() || !$verifyResponse->json('status')) {
+            throw new RuntimeException('Paystack refund lookup failed: Cannot verify transaction details.');
+        }
+
+        $currency = $verifyResponse->json('data.currency') ?? config('nexakit.pay.currency', 'NGN');
         $minorAmount = $this->convertToMinorUnits($amount, $currency);
 
         $payload = [
@@ -112,6 +122,7 @@ class PaystackDriver implements PaymentGateway
 
         if ($reason) {
             $payload['customer_note'] = $reason;
+            $payload['merchant_note'] = $reason;
         }
 
         $response = Http::withHeaders($this->getHeaders())
@@ -129,9 +140,10 @@ class PaystackDriver implements PaymentGateway
 
         $rawMetadata = $payloadResponse['data']['metadata'] ?? [];
         $metadata = is_string($rawMetadata) ? (json_decode($rawMetadata, true) ?? []) : $rawMetadata;
+        $refundStatus = $payloadResponse['data']['status'] ?? 'pending';
 
         return new PaymentResponse(
-            status: 'success',
+            status: $this->normalizeStatus($refundStatus),
             reference: $reference,
             amount: $amount,
             currency: $payloadResponse['data']['currency'] ?? $currency,
@@ -139,38 +151,6 @@ class PaystackDriver implements PaymentGateway
             meta: $payloadResponse,
             metadata: $metadata
         );
-    }
-
-    /**
-     * Convert major currency units to minor units (e.g., Naira to Kobo).
-     */
-    protected function convertToMinorUnits(float|int $amount, string $currency): int
-    {
-        $zeroDecimalCurrencies = [
-            'BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'SLL', 'UGX', 'VUV', 'XAF', 'XOF', 'XPF'
-        ];
-
-        if (in_array(strtoupper($currency), $zeroDecimalCurrencies)) {
-            return (int) $amount;
-        }
-
-        return (int) round($amount * 100);
-    }
-
-    /**
-     * Convert minor currency units to major units (e.g., Kobo to Naira).
-     */
-    protected function convertToMajorUnits(float|int $amount, string $currency): float|int
-    {
-        $zeroDecimalCurrencies = [
-            'BIF', 'CLP', 'DJF', 'GNF', 'JPY', 'KMF', 'KRW', 'MGA', 'PYG', 'RWF', 'SLL', 'UGX', 'VUV', 'XAF', 'XOF', 'XPF'
-        ];
-
-        if (in_array(strtoupper($currency), $zeroDecimalCurrencies)) {
-            return $amount;
-        }
-
-        return $amount / 100;
     }
 
     /**
@@ -191,9 +171,12 @@ class PaystackDriver implements PaymentGateway
     protected function normalizeStatus(string $status): string
     {
         return match ($status) {
-            'success' => 'success',
-            'ongoing', 'pending' => 'pending',
-            default => 'failed',
+            'success', 'processed'  => 'success',
+            'ongoing', 'pending',
+            'queued', 'processing'  => 'pending',
+            'abandoned', 'reversed',
+            'failed'                => 'failed',
+            default                 => 'failed',
         };
     }
 }
