@@ -28,7 +28,7 @@ php artisan vendor:publish --tag="nexakit-config"
 Define your credentials in your `.env` file:
 
 ```env
-# Default Payment Driver (paystack, flutterwave, sandbox)
+# Default Payment Driver (paystack, flutterwave, stripe, sandbox)
 # Defaults to "sandbox" if not defined here.
 NEXAKIT_PAY_DRIVER=paystack
 
@@ -39,7 +39,34 @@ PAYSTACK_SECRET_KEY=sk_test_...
 # Flutterwave Configuration
 FLUTTERWAVE_PUBLIC_KEY=FLWPUBK_TEST-...
 FLUTTERWAVE_SECRET_KEY=FLWSECK_TEST-...
+
+# Stripe Configuration
+STRIPE_PUBLIC_KEY=pk_test_...
+STRIPE_SECRET_KEY=sk_test_...
 ```
+
+---
+
+## Testing Without Credentials
+
+Nexakit ships with a built-in `sandbox` driver for local development. No API keys or remote calls are needed — it simulates the entire checkout redirection, verification, and refund flows locally out of the box using Laravel's Cache.
+
+To enable it, set your environment driver to sandbox:
+
+```env
+NEXAKIT_PAY_DRIVER=sandbox
+```
+
+---
+
+## Feature Matrix
+
+| Gateway | Initiate Checkout | Verify Transaction | Refund Payments | Webhooks |
+| :--- | :---: | :---: | :---: | :---: |
+| **Sandbox** | ✅ | ✅ | ✅ | 🔜 |
+| **Paystack** | ✅ | ✅ | ✅ | 🔜 |
+| **Flutterwave** | ✅ | ✅ | ✅ | 🔜 |
+| **Stripe** | ✅ | ✅ | ✅ | 🔜 |
 
 ---
 
@@ -62,7 +89,7 @@ $response = Pay::charge()
     ->to($user) // Resolves email from $user model automatically, or pass "seun.adebayo@gmail.com"
     ->reference('pay_1779617591_STn35W')
     ->callbackUrl('https://pienexa.com/payments/callback')
-    ->via('paystack') // Defaults to NEXAKIT_PAY_DRIVER if omitted
+    ->via('paystack') // Omit to use NEXAKIT_PAY_DRIVER env value (defaults to "sandbox" if unset)
     ->with([
         'paystack' => [
             'metadata' => [
@@ -111,6 +138,20 @@ $response = Pay::driver('paystack')->refund(
 if ($response->isSuccessful()) {
     // Refund processed successfully
 }
+```
+
+### 4. Switch Drivers at Runtime
+
+You can easily switch drivers dynamically without changing your global environment configuration:
+
+```php
+use Alphaxio\Nexakit\Facades\Pay;
+
+// Verify a Stripe checkout session reference
+$stripeResponse = Pay::driver('stripe')->verify($sessionId);
+
+// Refund a Flutterwave payment
+$flwResponse = Pay::driver('flutterwave')->refund($reference, 1200);
 ```
 
 ---
