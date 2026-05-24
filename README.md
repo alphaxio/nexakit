@@ -4,6 +4,11 @@ Nexakit is a unified integration toolkit for Laravel, designed to simplify build
 
 It normalizes differences across various third-party APIs, providing unified interfaces, standardizing responses, and streamlining configurations.
 
+## Requirements
+
+* **PHP**: `^8.2` or higher
+* **Laravel**: `10.x` | `11.x` | `12.x` | `13.x`
+
 ## Installation
 
 Install the package via Composer:
