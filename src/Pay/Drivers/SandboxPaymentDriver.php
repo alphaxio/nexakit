@@ -18,9 +18,10 @@ class SandboxPaymentDriver implements PaymentGateway
             reference: $request->reference,
             amount: $request->amount,
             currency: $request->currency,
-            redirectUrl: 'http://localhost/nexakit/sandbox/checkout?reference=' . $request->reference,
+            redirectUrl: config('app.url') . '/nexakit/sandbox/checkout?reference=' . $request->reference . '&callback_url=' . urlencode($request->callbackUrl ?? ''),
             gateway: 'sandbox',
-            meta: ['message' => 'Sandbox simulation initialized successfully.']
+            meta: ['message' => 'Sandbox simulation initialized successfully.'],
+            metadata: $request->options['sandbox']['metadata'] ?? []
         );
     }
 
@@ -35,7 +36,8 @@ class SandboxPaymentDriver implements PaymentGateway
             amount: 5000, // Simulated standard amount
             currency: 'NGN',
             gateway: 'sandbox',
-            meta: ['message' => 'Sandbox simulation verified successfully.']
+            meta: ['message' => 'Sandbox simulation verified successfully.'],
+            metadata: []
         );
     }
 
@@ -53,7 +55,8 @@ class SandboxPaymentDriver implements PaymentGateway
             meta: [
                 'message' => 'Sandbox simulation refunded successfully.',
                 'reason' => $reason
-            ]
+            ],
+            metadata: []
         );
     }
 }

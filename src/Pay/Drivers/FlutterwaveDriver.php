@@ -45,7 +45,7 @@ class FlutterwaveDriver implements PaymentGateway
             ->post("{$this->baseUrl}/payments", $payload);
 
         if ($response->failed() || $response->json('status') !== 'success') {
-            throw new RuntimeException('Flutterwave initialization failed: ' . ($response->json('message') ?? 'Unknown error'));
+            throw new RuntimeException('Flutterwave initialization failed: ' . ($response->json('message') ?? 'Error'));
         }
 
         return new PaymentResponse(
@@ -55,7 +55,8 @@ class FlutterwaveDriver implements PaymentGateway
             currency: $request->currency,
             redirectUrl: $response->json('data.link'),
             gateway: 'flutterwave',
-            meta: $response->json()
+            meta: $response->json(),
+            metadata: $request->options['flutterwave']['meta'] ?? []
         );
     }
 
@@ -70,10 +71,12 @@ class FlutterwaveDriver implements PaymentGateway
             ]);
 
         if ($response->failed() || $response->json('status') !== 'success') {
-            throw new RuntimeException('Flutterwave verification failed: ' . ($response->json('message') ?? 'Unknown error'));
+            throw new RuntimeException('Flutterwave verification failed: ' . ($response->json('message') ?? 'Error'));
         }
 
         $data = $response->json('data');
+        $rawMetadata = $data['meta'] ?? [];
+        $metadata = is_string($rawMetadata) ? (json_decode($rawMetadata, true) ?? []) : $rawMetadata;
 
         return new PaymentResponse(
             status: $this->normalizeStatus($data['status'] ?? 'failed'),
@@ -81,7 +84,8 @@ class FlutterwaveDriver implements PaymentGateway
             amount: (float) $data['amount'],
             currency: $data['currency'],
             gateway: 'flutterwave',
-            meta: $response->json()
+            meta: $response->json(),
+            metadata: $metadata
         );
     }
 
@@ -111,8 +115,11 @@ class FlutterwaveDriver implements PaymentGateway
             ->post("{$this->baseUrl}/transactions/{$transactionId}/refund", $payload);
 
         if ($response->failed() || $response->json('status') !== 'success') {
-            throw new RuntimeException('Flutterwave refund failed: ' . ($response->json('message') ?? 'Unknown error'));
+            throw new RuntimeException('Flutterwave refund failed: ' . ($response->json('message') ?? 'Error'));
         }
+
+        $rawMetadata = $response->json('data.meta') ?? [];
+        $metadata = is_string($rawMetadata) ? (json_decode($rawMetadata, true) ?? []) : $rawMetadata;
 
         return new PaymentResponse(
             status: 'success',
@@ -120,7 +127,8 @@ class FlutterwaveDriver implements PaymentGateway
             amount: $amount,
             currency: $response->json('data.currency') ?? 'NGN',
             gateway: 'flutterwave',
-            meta: $response->json()
+            meta: $response->json(),
+            metadata: $metadata
         );
     }
 

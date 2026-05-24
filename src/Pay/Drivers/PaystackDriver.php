@@ -49,7 +49,7 @@ class PaystackDriver implements PaymentGateway
             ->post("{$this->baseUrl}/transaction/initialize", $payload);
 
         if ($response->failed() || !$response->json('status')) {
-            throw new RuntimeException('Paystack initialization failed: ' . ($response->json('message') ?? 'Unknown error'));
+            throw new RuntimeException('Paystack initialization failed: ' . ($response->json('message') ?? 'Error'));
         }
 
         return new PaymentResponse(
@@ -59,7 +59,8 @@ class PaystackDriver implements PaymentGateway
             currency: $request->currency,
             redirectUrl: $response->json('data.authorization_url'),
             gateway: 'paystack',
-            meta: $response->json()
+            meta: $response->json(),
+            metadata: $request->options['paystack']['metadata'] ?? []
         );
     }
 
@@ -72,12 +73,14 @@ class PaystackDriver implements PaymentGateway
             ->get("{$this->baseUrl}/transaction/verify/" . rawurlencode($reference));
 
         if ($response->failed() || !$response->json('status')) {
-            throw new RuntimeException('Paystack verification failed: ' . ($response->json('message') ?? 'Unknown error'));
+            throw new RuntimeException('Paystack verification failed: ' . ($response->json('message') ?? 'Error'));
         }
 
         $data = $response->json('data');
         $currency = $data['currency'] ?? 'NGN';
         $majorAmount = $this->convertToMajorUnits($data['amount'] ?? 0, $currency);
+        $rawMetadata = $data['metadata'] ?? [];
+        $metadata = is_string($rawMetadata) ? (json_decode($rawMetadata, true) ?? []) : $rawMetadata;
 
         return new PaymentResponse(
             status: $this->normalizeStatus($data['status'] ?? 'failed'),
@@ -85,7 +88,8 @@ class PaystackDriver implements PaymentGateway
             amount: $majorAmount,
             currency: $currency,
             gateway: 'paystack',
-            meta: $response->json()
+            meta: $response->json(),
+            metadata: $metadata
         );
     }
 
@@ -110,8 +114,11 @@ class PaystackDriver implements PaymentGateway
             ->post("{$this->baseUrl}/refund", $payload);
 
         if ($response->failed() || !$response->json('status')) {
-            throw new RuntimeException('Paystack refund failed: ' . ($response->json('message') ?? 'Unknown error'));
+            throw new RuntimeException('Paystack refund failed: ' . ($response->json('message') ?? 'Error'));
         }
+
+        $rawMetadata = $response->json('data.metadata') ?? [];
+        $metadata = is_string($rawMetadata) ? (json_decode($rawMetadata, true) ?? []) : $rawMetadata;
 
         return new PaymentResponse(
             status: 'success',
@@ -119,7 +126,8 @@ class PaystackDriver implements PaymentGateway
             amount: $amount,
             currency: $response->json('data.currency') ?? $currency,
             gateway: 'paystack',
-            meta: $response->json()
+            meta: $response->json(),
+            metadata: $metadata
         );
     }
 

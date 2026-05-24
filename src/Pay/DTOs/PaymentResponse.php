@@ -9,20 +9,22 @@ readonly class PaymentResponse
      *
      * @param string $status The standardized status: 'success', 'failed', or 'pending'
      * @param string $reference Unique transaction reference
-     * @param int $amount Amount in minor units (e.g., kobo for NGN, cents for USD)
+     * @param float|int $amount Amount in major units (e.g. 100 for NGN 100, 10.50 for NGN 10.50)
      * @param string $currency Three-letter currency code (e.g., NGN, GHS, KES)
      * @param string|null $redirectUrl Optional checkout URL (if status is pending and requires redirect)
      * @param string $gateway The driver name that handled this transaction (e.g., 'paystack')
      * @param array $meta Raw response payload from the gateway provider
+     * @param array $metadata Clean parsed metadata associated with the transaction
      */
     public function __construct(
         public string $status,
         public string $reference,
-        public int $amount,
+        public float|int $amount,
         public string $currency,
         public ?string $redirectUrl = null,
         public string $gateway = '',
-        public array $meta = []
+        public array $meta = [],
+        public array $metadata = []
     ) {}
 
     /**
