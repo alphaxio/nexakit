@@ -76,11 +76,15 @@ class PaystackDriver implements PaymentGateway
             throw new RuntimeException('Paystack verification failed: ' . ($response->json('message') ?? 'Error'));
         }
 
-        $data = $response->json('data');
+        $payload = $response->json();
+        if (isset($payload['data']['metadata']) && is_string($payload['data']['metadata'])) {
+            $payload['data']['metadata'] = json_decode($payload['data']['metadata'], true) ?? $payload['data']['metadata'];
+        }
+
+        $data = $payload['data'] ?? [];
         $currency = $data['currency'] ?? 'NGN';
         $majorAmount = $this->convertToMajorUnits($data['amount'] ?? 0, $currency);
-        $rawMetadata = $data['metadata'] ?? [];
-        $metadata = is_string($rawMetadata) ? (json_decode($rawMetadata, true) ?? []) : $rawMetadata;
+        $metadata = $data['metadata'] ?? [];
 
         return new PaymentResponse(
             status: $this->normalizeStatus($data['status'] ?? 'failed'),
@@ -88,7 +92,7 @@ class PaystackDriver implements PaymentGateway
             amount: $majorAmount,
             currency: $currency,
             gateway: 'paystack',
-            meta: $response->json(),
+            meta: $payload,
             metadata: $metadata
         );
     }
@@ -117,16 +121,22 @@ class PaystackDriver implements PaymentGateway
             throw new RuntimeException('Paystack refund failed: ' . ($response->json('message') ?? 'Error'));
         }
 
-        $rawMetadata = $response->json('data.metadata') ?? [];
+        $payloadResponse = $response->json();
+        // Decode nested transaction metadata if present
+        if (isset($payloadResponse['data']['transaction']['metadata']) && is_string($payloadResponse['data']['transaction']['metadata'])) {
+            $payloadResponse['data']['transaction']['metadata'] = json_decode($payloadResponse['data']['transaction']['metadata'], true) ?? $payloadResponse['data']['transaction']['metadata'];
+        }
+
+        $rawMetadata = $payloadResponse['data']['metadata'] ?? [];
         $metadata = is_string($rawMetadata) ? (json_decode($rawMetadata, true) ?? []) : $rawMetadata;
 
         return new PaymentResponse(
             status: 'success',
             reference: $reference,
             amount: $amount,
-            currency: $response->json('data.currency') ?? $currency,
+            currency: $payloadResponse['data']['currency'] ?? $currency,
             gateway: 'paystack',
-            meta: $response->json(),
+            meta: $payloadResponse,
             metadata: $metadata
         );
     }
