@@ -167,6 +167,11 @@ class StripeDriver implements PaymentGateway
      */
     protected function resolveCheckoutSession(string $reference): array
     {
+        $reference = trim($reference);
+        if (empty($reference)) {
+            throw new \InvalidArgumentException('Transaction reference cannot be empty.');
+        }
+
         // If reference is a Stripe checkout session ID directly
         if (str_starts_with($reference, 'cs_')) {
             $response = Http::withBasicAuth($this->config['secret_key'], '')
@@ -178,17 +183,45 @@ class StripeDriver implements PaymentGateway
             }
         }
 
-        // Otherwise search for session by client_reference_id
-        $response = Http::withBasicAuth($this->config['secret_key'], '')
-            ->withHeaders($this->getHeaders())
-            ->get("{$this->baseUrl}/checkout/sessions", [
-                'client_reference_id' => $reference,
-                'limit' => 1,
-            ]);
+        // Otherwise search for session by listing and filtering by client_reference_id
+        // Since Stripe API does not support direct filtering by client_reference_id
+        $startingAfter = null;
+        $pagesLimit = 3; // Look up to 3 pages (300 sessions) to avoid performance issues
 
-        $sessions = $response->json('data') ?? [];
-        if (!empty($sessions[0])) {
-            return $sessions[0];
+        for ($i = 0; $i < $pagesLimit; $i++) {
+            $params = ['limit' => 100];
+            if ($startingAfter) {
+                $params['starting_after'] = $startingAfter;
+            }
+
+            $response = Http::withBasicAuth($this->config['secret_key'], '')
+                ->withHeaders($this->getHeaders())
+                ->get("{$this->baseUrl}/checkout/sessions", $params);
+
+            if ($response->failed()) {
+                break;
+            }
+
+            $sessions = $response->json('data') ?? [];
+            if (empty($sessions)) {
+                break;
+            }
+
+            foreach ($sessions as $session) {
+                if (($session['client_reference_id'] ?? null) === $reference) {
+                    return $session;
+                }
+            }
+
+            if (!$response->json('has_more')) {
+                break;
+            }
+
+            $lastSession = $sessions[count($sessions) - 1];
+            $startingAfter = $lastSession['id'] ?? null;
+            if (!$startingAfter) {
+                break;
+            }
         }
 
         throw new RuntimeException("Stripe checkout session not found for reference: {$reference}");

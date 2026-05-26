@@ -281,6 +281,49 @@ class PaymentTest extends TestCase
     }
 
     /** @test */
+    public function it_can_verify_stripe_payment_by_client_reference_id()
+    {
+        $reference = 'tx_1234567890';
+
+        Http::fake([
+            'https://api.stripe.com/v1/checkout/sessions*' => Http::response([
+                'object' => 'list',
+                'data' => [
+                    [
+                        'id' => 'cs_test_session_id_other',
+                        'payment_status' => 'unpaid',
+                        'status' => 'open',
+                        'client_reference_id' => 'tx_9999999999',
+                        'amount_total' => 300000,
+                        'currency' => 'usd',
+                        'metadata' => []
+                    ],
+                    [
+                        'id' => 'cs_test_session_id',
+                        'payment_status' => 'paid',
+                        'status' => 'complete',
+                        'client_reference_id' => $reference,
+                        'amount_total' => 500000,
+                        'currency' => 'usd',
+                        'metadata' => [
+                            'invoice_no' => 'INV-001'
+                        ]
+                    ]
+                ],
+                'has_more' => false
+            ], 200)
+        ]);
+
+        $response = Pay::driver('stripe')->verify($reference);
+
+        $this->assertTrue($response->isSuccessful());
+        $this->assertEquals($reference, $response->reference);
+        $this->assertEquals(5000, $response->amount);
+        $this->assertEquals('USD', $response->currency);
+        $this->assertEquals(['invoice_no' => 'INV-001'], $response->metadata);
+    }
+
+    /** @test */
     public function it_can_refund_stripe_payment()
     {
         $sessionId = 'cs_test_session_id';
